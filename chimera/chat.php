@@ -1,11 +1,8 @@
 <?php
 /**
  * Chimera PHP — Web Chat UI.
- *
- * API key is validated server-side via session. Never sent to the browser.
- * Chat requests go through this file as proxy, not directly to api.php.
+ * Handles chat directly (no proxy) — API key stays server-side.
  */
-
 declare(strict_types=1);
 
 $configFile = __DIR__ . '/config.php';
@@ -13,34 +10,36 @@ if (!file_exists($configFile)) { header('Location: ../index.php'); exit; }
 $config = require $configFile;
 $agentName = $config['agent_name'] ?? 'Chimera';
 
-// Handle API proxy — chat.php also works as the backend for the UI
+// Handle chat POST directly (no curl proxy — much faster)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_GET['action'] ?? '') === 'chat') {
     header('Content-Type: application/json');
     $body = json_decode(file_get_contents('php://input'), true) ?? [];
     $message = $body['message'] ?? '';
     if ($message === '') { echo json_encode(['error' => 'Empty message']); exit; }
 
-    // Call api.php internally with the real API key (never exposed to client)
-    $apiKey = $config['api_key'] ?? '';
-    $apiUrl = 'http' . (($_SERVER['HTTPS'] ?? '') === 'on' ? 's' : '') . '://'
-        . $_SERVER['HTTP_HOST'] . dirname($_SERVER['SCRIPT_NAME']) . '/api.php?action=chat';
+    require_once __DIR__ . '/vendor/autoload.php';
 
-    $ch = curl_init($apiUrl);
-    curl_setopt_array($ch, [
-        CURLOPT_POST => true,
-        CURLOPT_HTTPHEADER => [
-            'Content-Type: application/json',
-            "Authorization: Bearer {$apiKey}",
-        ],
-        CURLOPT_POSTFIELDS => json_encode(['message' => $message]),
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 120,
-        CURLOPT_SSL_VERIFYPEER => false,
-    ]);
-    $response = curl_exec($ch);
-    curl_close($ch);
+    // Set env vars from config
+    putenv("CHIMERA_LLM_PROVIDER=workers-ai");
+    putenv("CHIMERA_LLM_MODEL={$config['model']}");
+    putenv("CF_ACCOUNT_ID={$config['cf_account_id']}");
+    putenv("CF_API_TOKEN={$config['cf_api_token']}");
+    putenv("CHIMERA_MAX_ITERATIONS=" . ($config['max_iterations'] ?? 15));
+    putenv("CHIMERA_DATA_DIR={$config['data_dir']}");
 
-    echo $response ?: json_encode(['error' => 'No response from agent']);
+    try {
+        $agent = new \ChimeraPHP\Chimera(new \ChimeraPHP\Config());
+        $result = $agent->chat($message);
+        echo json_encode([
+            'response' => $result['content'],
+            'iterations' => $result['iterations'],
+            'tokens' => $result['totalTokens'],
+            'tools_used' => $result['toolsUsed'],
+            'learned' => $result['learned'] ?? [],
+        ], JSON_UNESCAPED_SLASHES);
+    } catch (\Throwable $e) {
+        echo json_encode(['error' => $e->getMessage()]);
+    }
     exit;
 }
 
@@ -78,18 +77,14 @@ header .status { font-size: 0.8rem; color: #64748b; }
     <h1><?= htmlspecialchars($agentName) ?></h1>
     <span class="status">Model: <?= htmlspecialchars($config['model'] ?? 'unknown') ?></span>
 </header>
-
 <div id="messages">
     <div class="msg system">Type a message to start chatting with <?= htmlspecialchars($agentName) ?></div>
 </div>
-
 <div id="input-area">
     <textarea id="input" rows="1" placeholder="Type your message..." autofocus></textarea>
     <button id="send" onclick="sendMessage()">Send</button>
 </div>
-
 <script>
-// API key is NEVER in the frontend — chat.php proxies to api.php server-side
 const API_URL = 'chat.php?action=chat';
 const messagesEl = document.getElementById('messages');
 const inputEl = document.getElementById('input');
@@ -106,7 +101,6 @@ inputEl.addEventListener('input', () => {
 async function sendMessage() {
     const text = inputEl.value.trim();
     if (!text) return;
-
     addMessage('user', text);
     inputEl.value = '';
     inputEl.style.height = 'auto';
@@ -124,26 +118,20 @@ async function sendMessage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message: text }),
         });
-
         const data = await res.json();
         typing.remove();
 
         if (data.error) {
             addMessage('system', 'Error: ' + data.error);
         } else {
-            const meta = `${data.iterations || '?'} iterations · ${data.tokens || '?'} tokens` +
-                (data.tools_used?.length ? ' · tools: ' + data.tools_used.join(', ') : '');
+            const meta = `${data.iterations || '?'} iter · ${data.tokens || '?'} tokens` +
+                (data.tools_used?.length ? ' · ' + data.tools_used.join(', ') : '');
             addMessage('assistant', data.response || 'No response', meta);
-
-            if (data.learned?.memoriesExtracted > 0 || data.learned?.skillsExtracted > 0) {
-                addMessage('system', `Learned: ${data.learned.memoriesExtracted || 0} memories, ${data.learned.skillsExtracted || 0} skills`);
-            }
         }
     } catch (err) {
         typing.remove();
-        addMessage('system', 'Connection error: ' + err.message);
+        addMessage('system', 'Error: ' + err.message);
     }
-
     sendBtn.disabled = false;
     inputEl.focus();
 }
@@ -153,10 +141,10 @@ function addMessage(role, content, meta = '') {
     div.className = 'msg ' + role;
     div.textContent = content;
     if (meta) {
-        const metaEl = document.createElement('div');
-        metaEl.className = 'meta';
-        metaEl.textContent = meta;
-        div.appendChild(metaEl);
+        const m = document.createElement('div');
+        m.className = 'meta';
+        m.textContent = meta;
+        div.appendChild(m);
     }
     messagesEl.appendChild(div);
     messagesEl.scrollTop = messagesEl.scrollHeight;
