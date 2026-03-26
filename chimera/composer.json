@@ -1,0 +1,36 @@
+{
+    "name": "chimera/installer",
+    "description": "Chimera PHP Agent \u2014 pre-packaged installer",
+    "require": {
+        "php": ">=8.1",
+        "mauricioperera/chimera-php": "*",
+        "mauricioperera/php-vector-store": "*",
+        "mauricioperera/php-agent-memory": "*",
+        "mauricioperera/php-agent-shell": "*",
+        "mauricioperera/php-a2e": "*"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../../php-vector-store"
+        },
+        {
+            "type": "path",
+            "url": "../../php-agent-memory"
+        },
+        {
+            "type": "path",
+            "url": "../../php-agent-shell"
+        },
+        {
+            "type": "path",
+            "url": "../../php-a2e"
+        },
+        {
+            "type": "path",
+            "url": "../../chimera-php"
+        }
+    ]
+}
