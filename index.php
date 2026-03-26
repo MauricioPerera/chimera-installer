@@ -8,13 +8,23 @@
 $configFile = __DIR__ . '/chimera/config.php';
 $installed = file_exists($configFile);
 
+// CSRF protection
+session_start();
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 // Handle form submission
 $step = $_POST['step'] ?? ($_GET['step'] ?? ($installed ? 'done' : '1'));
 $error = '';
 $success = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if ($step === '2') {
+    // Verify CSRF token
+    if (!hash_equals($_SESSION['csrf_token'], $_POST['_csrf'] ?? '')) {
+        $error = 'Invalid security token. Please try again.';
+        $step = '1';
+    } elseif ($step === '2') {
         // Save configuration
         $cfAccount = trim($_POST['cf_account_id'] ?? '');
         $cfToken = trim($_POST['cf_api_token'] ?? '');
@@ -163,6 +173,7 @@ small { color: #64748b; font-size: 0.8rem; }
 
     <form method="POST">
         <input type="hidden" name="step" value="2">
+        <input type="hidden" name="_csrf" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
 
         <h2>Cloudflare Workers AI</h2>
         <p>Free tier. Get credentials at <a href="https://dash.cloudflare.com" target="_blank" style="color:#818cf8">dash.cloudflare.com</a></p>

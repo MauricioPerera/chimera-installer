@@ -1,9 +1,49 @@
 <?php
+/**
+ * Chimera PHP — Web Chat UI.
+ *
+ * API key is validated server-side via session. Never sent to the browser.
+ * Chat requests go through this file as proxy, not directly to api.php.
+ */
+
+declare(strict_types=1);
+
 $configFile = __DIR__ . '/config.php';
 if (!file_exists($configFile)) { header('Location: ../index.php'); exit; }
 $config = require $configFile;
 $agentName = $config['agent_name'] ?? 'Chimera';
-$apiKey = $config['api_key'] ?? '';
+
+// Handle API proxy — chat.php also works as the backend for the UI
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_GET['action'] ?? '') === 'chat') {
+    header('Content-Type: application/json');
+    $body = json_decode(file_get_contents('php://input'), true) ?? [];
+    $message = $body['message'] ?? '';
+    if ($message === '') { echo json_encode(['error' => 'Empty message']); exit; }
+
+    // Call api.php internally with the real API key (never exposed to client)
+    $apiKey = $config['api_key'] ?? '';
+    $apiUrl = 'http' . (($_SERVER['HTTPS'] ?? '') === 'on' ? 's' : '') . '://'
+        . $_SERVER['HTTP_HOST'] . dirname($_SERVER['SCRIPT_NAME']) . '/api.php?action=chat';
+
+    $ch = curl_init($apiUrl);
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            "Authorization: Bearer {$apiKey}",
+        ],
+        CURLOPT_POSTFIELDS => json_encode(['message' => $message]),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 120,
+        CURLOPT_SSL_VERIFYPEER => false,
+    ]);
+    $response = curl_exec($ch);
+    curl_close($ch);
+
+    echo $response ?: json_encode(['error' => 'No response from agent']);
+    exit;
+}
+
 ?><!DOCTYPE html>
 <html lang="en">
 <head>
@@ -49,8 +89,8 @@ header .status { font-size: 0.8rem; color: #64748b; }
 </div>
 
 <script>
-const API_URL = 'api.php?action=chat';
-const API_KEY = <?= json_encode($apiKey) ?>;
+// API key is NEVER in the frontend — chat.php proxies to api.php server-side
+const API_URL = 'chat.php?action=chat';
 const messagesEl = document.getElementById('messages');
 const inputEl = document.getElementById('input');
 const sendBtn = document.getElementById('send');
@@ -58,8 +98,6 @@ const sendBtn = document.getElementById('send');
 inputEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
-
-// Auto-resize textarea
 inputEl.addEventListener('input', () => {
     inputEl.style.height = 'auto';
     inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
@@ -83,10 +121,7 @@ async function sendMessage() {
     try {
         const res = await fetch(API_URL, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(API_KEY ? { 'Authorization': 'Bearer ' + API_KEY } : {}),
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message: text }),
         });
 
