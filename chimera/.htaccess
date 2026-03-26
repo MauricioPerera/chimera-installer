@@ -1,7 +1,3 @@
 <FilesMatch "config\.php$">
-    Deny from all
-</FilesMatch>
-
-<FilesMatch "\.env$">
-    Deny from all
+Deny from all
 </FilesMatch>

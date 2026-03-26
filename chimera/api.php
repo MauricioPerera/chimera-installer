@@ -72,17 +72,13 @@ try {
 function createAgent(array $config): \ChimeraPHP\Chimera
 {
     // Write .env for Chimera Config
-    $envContent = "CHIMERA_LLM_PROVIDER=workers-ai\n"
-        . "CHIMERA_LLM_MODEL={$config['model']}\n"
-        . "CF_ACCOUNT_ID={$config['cf_account_id']}\n"
-        . "CF_API_TOKEN={$config['cf_api_token']}\n"
-        . "CHIMERA_MAX_ITERATIONS=" . ($config['max_iterations'] ?? 15) . "\n"
-        . "CHIMERA_DATA_DIR={$config['data_dir']}\n";
-
-    $envFile = dirname(__DIR__) . '/.env';
-    if (!file_exists($envFile)) {
-        file_put_contents($envFile, $envContent);
-    }
+    // Set env vars directly from config (no .env file dependency)
+    putenv("CHIMERA_LLM_PROVIDER=workers-ai");
+    putenv("CHIMERA_LLM_MODEL={$config['model']}");
+    putenv("CF_ACCOUNT_ID={$config['cf_account_id']}");
+    putenv("CF_API_TOKEN={$config['cf_api_token']}");
+    putenv("CHIMERA_MAX_ITERATIONS=" . ($config['max_iterations'] ?? 15));
+    putenv("CHIMERA_DATA_DIR={$config['data_dir']}");
 
     return new \ChimeraPHP\Chimera(new \ChimeraPHP\Config());
 }
